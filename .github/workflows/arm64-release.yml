@@ -64,7 +64,7 @@ jobs:
               src = p.read_text()
               src = src.replace(
                   'jcenter()',
-                  "maven { url 'https://dl.google.com/dl/android/maven2/' }; mavenCentral(); jcenter()"
+                  "maven { url 'https://maven.aliyun.com/repository/public' }; maven { url 'https://maven.aliyun.com/repository/google' }; maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }; maven { url 'https://dl.google.com/dl/android/maven2/' }; mavenCentral(); jcenter()"
               )
               p.write_text(src)
           PY
