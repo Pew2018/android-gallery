@@ -1,0 +1,147 @@
+name: ARM64 Release APK (legacy Android Gallery)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/arm64-release.yml'
+      - 'app/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle/**'
+      - 'gradle.properties'
+
+permissions:
+  contents: read
+
+jobs:
+  release-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out source on GitHub runner
+        uses: actions/checkout@v4
+
+      - name: Prepare JDK 17 for Android SDK tools
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install original Android API 25 SDK
+        run: |
+          sdkmanager --install "platforms;android-25" "build-tools;25.0.3"
+          sdkmanager --list_installed
+
+      - name: Use JDK 8 for the original Gradle 3.3 build
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+
+      - name: Generate disposable CI signing key
+        shell: bash
+        run: |
+          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/gallery-ci.jks" \
+            -storepass "ci-only-password" -keypass "ci-only-password" \
+            -alias "ci-gallery" -keyalg RSA -keysize 2048 -validity 2 \
+            -dname "CN=Temporary GitHub Actions Release Signature"
+          echo "CI_KEYSTORE=$RUNNER_TEMP/gallery-ci.jks" >> "$GITHUB_ENV"
+
+      - name: Adapt obsolete dependency repositories and configure ARM64 release on runner
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ('build.gradle', 'app/build.gradle'):
+              p = Path(name)
+              src = p.read_text()
+              src = src.replace(
+                  'jcenter()',
+                  "maven { url 'https://dl.google.com/dl/android/maven2/' }; mavenCentral(); jcenter()"
+              )
+              p.write_text(src)
+          PY
+          cat >> app/build.gradle <<'GRADLE'
+
+          // Build-only CI configuration; original repository code is unchanged.
+          android {
+              signingConfigs {
+                  ciRelease {
+                      storeFile file(System.getenv('CI_KEYSTORE'))
+                      storePassword 'ci-only-password'
+                      keyAlias 'ci-gallery'
+                      keyPassword 'ci-only-password'
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.ciRelease
+                  }
+              }
+              splits {
+                  abi {
+                      enable true
+                      reset()
+                      include 'arm64-v8a'
+                      universalApk false
+                  }
+              }
+          }
+          GRADLE
+          chmod +x gradlew
+
+      - name: Assemble signed ARM64 Release APK
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Validate and name the release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find app/build/outputs/apk -type f -name '*release*.apk')
+          printf 'Produced APKs:\n%s\n' "${files[*]}"
+          if (( ${#files[@]} == 0 )); then
+            echo "::error::No release APK was produced"
+            exit 1
+          fi
+          apk=""
+          for candidate in "${files[@]}"; do
+            if [[ "$candidate" == *arm64-v8a* ]]; then apk="$candidate"; break; fi
+          done
+          if [[ -z "$apk" ]]; then
+            if (( ${#files[@]} != 1 )); then
+              echo "::error::Cannot identify ARM64 APK among multiple outputs"
+              exit 1
+            fi
+            apk="${files[0]}"
+            echo "No ABI split emitted; verifying that this pure Kotlin/Java app has no native libraries."
+          fi
+          mapfile -t abis < <(unzip -Z -1 "$apk" | awk -F/ '/^lib\/[^/]+\// {print $2}' | sort -u)
+          if (( ${#abis[@]} > 0 )) && { (( ${#abis[@]} != 1 )) || [[ "${abis[0]}" != "arm64-v8a" ]]; }; then
+            echo "::error::Non-ARM64 native library found: ${abis[*]}"
+            exit 1
+          fi
+          tools="$ANDROID_HOME/build-tools/25.0.3"
+          "$tools/apksigner" verify --verbose "$apk"
+          "$tools/aapt" dump badging "$apk" | grep "^package:"
+          mkdir -p release
+          cp "$apk" release/android-gallery-arm64-v8a-release.apk
+          sha256sum release/android-gallery-arm64-v8a-release.apk
+          if (( ${#abis[@]} == 0 )); then
+            echo "APK contains no native libraries; it is ARM64-compatible but not ARM64-exclusive."
+          else
+            echo "Verified native architecture: arm64-v8a only."
+          fi
+          echo "The CI signature is temporary, not suitable for in-place upgrades." 
+
+      - name: Upload installable Release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-gallery-arm64-v8a-release
+          path: release/android-gallery-arm64-v8a-release.apk
+          if-no-files-found: error
+          retention-days: 14
