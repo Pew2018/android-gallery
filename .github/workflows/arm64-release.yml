@@ -29,13 +29,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK command-line tools
-        uses: android-actions/setup-android@v3
-
-      - name: Install original Android API 25 SDK
+      - name: Install original Android API 25 SDK using runner tools
+        shell: bash
         run: |
-          sdkmanager --install "platforms;android-25" "build-tools;25.0.3"
-          sdkmanager --list_installed
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -path '*/bin/sdkmanager' | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          echo "Using $SDKMANAGER"
+          "$SDKMANAGER" --install "platforms;android-25" "build-tools;25.0.3"
+          "$SDKMANAGER" --list_installed
 
       - name: Use JDK 8 for the original Gradle 3.3 build
         uses: actions/setup-java@v4
