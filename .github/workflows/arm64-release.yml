@@ -97,6 +97,12 @@ jobs:
           GRADLE
           chmod +x gradlew
 
+      - name: Bundle eight CC0 demo photos for offline animation testing
+        shell: bash
+        run: |
+          python3 -m pip install --disable-pip-version-check "Pillow>=10,<12"
+          python3 scripts/vendor_demo_photos.py
+
       - name: Assemble signed ARM64 Release APK
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
@@ -130,6 +136,15 @@ jobs:
           tools="$ANDROID_HOME/build-tools/25.0.3"
           "$tools/apksigner" verify --verbose "$apk"
           "$tools/aapt" dump badging "$apk" | grep "^package:"
+          "$tools/aapt" dump resources "$apk" > "$RUNNER_TEMP/gallery-resources.txt"
+          for number in 01 02 03 04 05 06 07 08; do
+            if ! grep -q "demo_${number}" "$RUNNER_TEMP/gallery-resources.txt"; then
+              echo "::error::Missing bundled demo_${number} in APK"
+              exit 1
+            fi
+          done
+          echo "Verified all eight offline demo images inside APK."
+
           mkdir -p release
           cp "$apk" release/android-gallery-arm64-v8a-release.apk
           sha256sum release/android-gallery-arm64-v8a-release.apk

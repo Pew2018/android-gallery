@@ -28,7 +28,7 @@ class ImagePagerAdapter(
         views.put(position, imageView)
 
         Picasso.with(collection.context)
-                .load(item.fullURL)
+                .load(item.imageResId)
                 .noFade()
                 .into(imageView, object : Callback {
                     override fun onSuccess() {

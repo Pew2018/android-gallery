@@ -29,7 +29,7 @@ class ImageGridAdapter(val items: List<GalleryItem>,
             itemView.setOnClickListener({ onItemClickListener?.onClick(item, it) })
             itemView.tag = GalleryItem.transitionName(item.id)
             ViewCompat.setTransitionName(itemView, GalleryItem.transitionName(item.id))
-            Picasso.with(itemView.context).load(item.thumbnailURL).into(itemView as ImageView)
+            Picasso.with(itemView.context).load(item.imageResId).into(itemView as ImageView)
         }
     }
 
